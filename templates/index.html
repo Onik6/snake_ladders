@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Snakes & Ladders</title>
+    <script src="https://cloudflare.com"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; background: #f4f4f9; margin: 20px; }
+        #lobby, #game { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; }
+        #game { display: none; }
+        .board { display: grid; grid-template-columns: repeat(10, 42px); grid-template-rows: repeat(10, 42px); border: 2px solid #333; margin: 15px auto; }
+        .cell { border: 1px solid #ddd; display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; padding: 2px; position: relative; }
+        .snake { background-color: #ffe5e5; }
+        .ladder { background-color: #e5ffe5; }
+        .tokens { display: flex; gap: 3px; justify-content: center; margin-bottom: 2px; }
+        .token { width: 14px; height: 14px; border-radius: 50%; }
+        .p1 { background: #e63946; border: 1px solid #800; }
+        .p2 { background: #1d3557; border: 1px solid #003; }
+        button { padding: 10px 18px; font-size: 16px; cursor: pointer; background: #2a9d8f; color: white; border: none; border-radius: 5px; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        input { padding: 10px; font-size: 16px; width: 120px; text-transform: uppercase; text-align: center; }
+        #log { margin-top: 10px; font-weight: bold; min-height: 24px; color: #333; }
+    </style>
+</head>
+<body>
+
+    <div id="lobby">
+        <h2>🐍 Snakes & Ladders 🪜</h2>
+        <button onclick="createRoom()">Create New Game</button>
+        <p>— OR —</p>
+        <input type="text" id="roomInput" placeholder="ROOM CODE" maxlength="4">
+        <button onclick="joinRoom()">Join Game</button>
+        <p id="error" style="color: red;"></p>
+    </div>
+
+    <div id="game">
+        <h3>Room Code: <span id="roomCodeDisplay" style="color:#2a9d8f;"></span></h3>
+        <p id="playerRole"></p>
+        <div class="board" id="board"></div>
+        <button id="rollBtn" onclick="rollDice()" disabled>Roll Dice 🎲</button>
+        <div id="log">Waiting for Player 2 to join...</div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentRoom = '';
+        let myPlayerNum = 0;
+
+        const snakes = {16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 78};
+        const ladders = {1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100};
+
+        function buildBoard() {
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+            // Build 100 down to 1 in alternating snake-grid rows
+            for (let row = 9; row >= 0; row--) {
+                for (let col = 0; col < 10; col++) {
+                    let num = (row % 2 === 0) ? (row * 10 + col + 1) : (row * 10 + (10 - col));
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.id = `cell-${num}`;
+                    let label = `${num}`;
+                    if (snakes[num]) { cell.classList.add('snake'); label += ` 🐍${snakes[num]}`; }
+                    if (ladders[num]) { cell.classList.add('ladder'); label += ` 🪜${ladders[num]}`; }
+                    cell.innerHTML = `<span>${label}</span><div class="tokens" id="tokens-${num}"></div>`;
+                    board.appendChild(cell);
+                }
+            }
+        }
+
+        function createRoom() { socket.emit('create_room'); }
+        function joinRoom() {
+            const code = document.getElementById('roomInput').value;
+            socket.emit('join_room', { room: code });
+        }
+        function rollDice() { socket.emit('roll_dice', { room: currentRoom }); }
+
+        socket.on('error_msg', (data) => { document.getElementById('error').innerText = data.msg; });
+
+        socket.on('room_joined', (data) => {
+            currentRoom = data.room;
+            myPlayerNum = data.player_num;
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('game').style.display = 'block';
+            document.getElementById('roomCodeDisplay').innerText = currentRoom;
+            document.getElementById('playerRole').innerText = `You are Player ${myPlayerNum} (${myPlayerNum === 1 ? 'Red' : 'Blue'})`;
+            buildBoard();
+            updateUI(data.state);
+        });
+
+        socket.on('game_update', (data) => {
+            document.getElementById('log').innerText = data.log;
+            updateUI(data.state);
+        });
+
+        function updateUI(state) {
+            document.querySelectorAll('.tokens').forEach(el => el.innerHTML = '');
+            Object.values(state.players).forEach(p => {
+                if (p.pos > 0) {
+                    const token = document.createElement('div');
+                    token.className = `token p${p.num}`;
+                    document.getElementById(`tokens-${p.pos}`).appendChild(token);
+                }
+            });
+            const rollBtn = document.getElementById('rollBtn');
+            rollBtn.disabled = !(state.status === 'playing' && state.turn === myPlayerNum);
+        }
+    </script>
+</body>
+</html>
